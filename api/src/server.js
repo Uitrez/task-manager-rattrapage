@@ -1,11 +1,11 @@
 require("dotenv").config();
 const app = require("./app");
-const { sequelize } = require("./db");
+const db = require("../models");
 const PORT = process.env.PORT || 3001;
 
 async function start() {
   try {
-    await sequelize.authenticate();
+    await db.sequelize.authenticate();
     console.log("Database connected");
     app.listen(PORT, () => {
       console.log(`API running on http://localhost:${PORT}`);
