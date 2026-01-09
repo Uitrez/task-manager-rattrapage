@@ -83,6 +83,8 @@ async function getListById(req, res) {
       ]
     });
 
+    res.set("Last-Modified", new Date(list.updatedAt).toUTCString());
+
     const payload = {
       id: list.id,
       name: list.name,

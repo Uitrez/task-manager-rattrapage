@@ -13,7 +13,7 @@ async function createTask(req, res) {
   try {
     const access = await getAccess(userId, listId);
     if (!access.exists) return res.status(404).json({ error: "List not found" });
-    if (!access.canRead) return res.status(404).json({ error: "List not found" }); // anti-leak
+    if (!access.canRead) return res.status(404).json({ error: "List not found" }); 
     if (!access.canEditTasks) return res.status(403).json({ error: "Forbidden" });
 
     const task = await db.Task.create({
@@ -22,6 +22,7 @@ async function createTask(req, res) {
       listId,
       done: false
     });
+    res.set("Last-Modified", new Date(task.updatedAt).toUTCString());
 
     return res.status(201).json({ task });
   } catch (err) {
@@ -35,6 +36,19 @@ async function updateTask(req, res) {
 
   if (Number.isNaN(taskId)) return res.status(400).json({ error: "Invalid task id" });
 
+  const ius = req.headers["if-unmodified-since"];
+  if (!ius) {
+    return res.status(428).json({
+      error: "Precondition required",
+      hint: "Send If-Unmodified-Since header with the task last known updatedAt"
+    });
+  }
+
+  const clientDate = new Date(ius);
+  if (Number.isNaN(clientDate.getTime())) {
+    return res.status(400).json({ error: "Invalid If-Unmodified-Since date" });
+  }
+
   const { title, done, dueDate } = req.body;
 
   try {
@@ -42,8 +56,20 @@ async function updateTask(req, res) {
     if (!task) return res.status(404).json({ error: "Task not found" });
 
     const access = await getAccess(userId, task.listId);
-    if (!access.canRead) return res.status(404).json({ error: "Task not found" }); // anti-leak
+    if (!access.canRead) return res.status(404).json({ error: "Task not found" }); 
     if (!access.canEditTasks) return res.status(403).json({ error: "Forbidden" });
+
+    const serverTime = new Date(task.updatedAt).getTime();
+    const clientTime = clientDate.getTime();
+
+    if (serverTime !== clientTime) {
+      res.set("Last-Modified", new Date(task.updatedAt).toUTCString());
+      return res.status(409).json({
+        error: "Conflict",
+        message: "Task has been modified since your last read",
+        serverUpdatedAt: task.updatedAt
+      });
+    }
 
     if (title !== undefined) task.title = title;
     if (done !== undefined) task.done = !!done;
@@ -51,6 +77,7 @@ async function updateTask(req, res) {
 
     await task.save();
 
+    res.set("Last-Modified", new Date(task.updatedAt).toUTCString());
     return res.json({ task });
   } catch (err) {
     return res.status(500).json({ error: "Server error" });
